@@ -2932,9 +2932,11 @@ PageNetworkIpSettings.prototype = {
         var auto_dns_search_btn, dns_search_table;
         var auto_routes_btn, routes_table;
 
-        function choicebox(p, choices) {
+        function choicebox(p, choices, callback) {
             var btn = select_btn(
                 function (choice) {
+                    if (callback)
+                        callback(choice);
                     params[p] = choice;
                     self.update();
                 },
@@ -3036,10 +3038,17 @@ PageNetworkIpSettings.prototype = {
             var body =
                 $('<div>').append(
                     addresses_table = tablebox(_("Addresses"), "addresses", [ "Address", prefix_text, "Gateway" ],
-                             [ "", "", "" ],
-                             method_btn = choicebox("method", (topic == "ipv4")?
-                                                    ipv4_method_choices : ipv6_method_choices).
-                                              css('display', 'inline-block')),
+                                               [ "", "", "" ],
+                                               method_btn = choicebox("method",
+                                                                      ((topic == "ipv4") ?
+                                                                       ipv4_method_choices :
+                                                                       ipv6_method_choices),
+                                                                      function (method) {
+                                                                          if (method == "auto") {
+                                                                              params.addresses = [ ];
+                                                                          }
+                                                                      }).
+                                               css('display', 'inline-block')),
                     $('<br>'),
                     dns_table =
                         tablebox(_("DNS"), "dns", "Server", "",
