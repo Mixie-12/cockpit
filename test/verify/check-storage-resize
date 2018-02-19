@@ -130,6 +130,97 @@ class TestStorage(StorageCase):
                              can_shrink=False,
                              can_grow=False)
 
+    def testGrowShrinkHelp(self):
+        m = self.machine
+        b = self.browser
+
+        fsys = "luks+ext4"
+        # fsys_row = 2
+        # fsys_tab = 1
+        # can_shrink = True
+        # shrink_needs_unmount=True
+        # can_grow=True
+        # grow_needs_unmount=False
+        need_passphrase=(self.machine.image == "rhel-8-0")
+
+        self.login_and_go("/storage")
+        m.add_disk("500M", serial="DISK1")
+        b.wait_in_text("#drives", "DISK1")
+
+        m.execute("vgcreate TEST /dev/disk/by-id/scsi-0QEMU_QEMU_HARDDISK_DISK1")
+        m.execute("lvcreate TEST -n vol -L 200m")
+        b.wait_present("#vgroups")
+        b.wait_in_text("#vgroups", "TEST")
+        b.click('#vgroups tr:contains("TEST")')
+        b.wait_visible("#storage-detail")
+        self.content_row_wait_in_col(1, 2, "/dev/TEST/vol")
+
+        self.content_tab_action(1, 2, "Format")
+        self.dialog_wait_open()
+        self.dialog_set_val("name", "FSYS")
+        self.dialog_set_val("type", "luks+ext4")
+        self.dialog_set_val("passphrase", "vainu-reku-toma-rolle-kaja")
+        self.dialog_set_val("passphrase2", "vainu-reku-toma-rolle-kaja")
+        self.dialog_apply()
+        self.dialog_wait_close()
+        self.content_tab_wait_in_info(2, 1, "Name", "FSYS")
+
+        mountpoint = self.mount_root + "/admin/FSYS"
+        self.content_tab_action(2, 1, "Mount")
+        self.content_tab_wait_in_info(2, 1, "Mounted At", mountpoint)
+
+        # Grow the logical volume and let Cockpit grow the LUKS container and the filesystem
+
+        m.execute("lvresize TEST/vol -L+100M")
+        warning_tab = self.content_tab_expand(2, 2)
+
+        self.content_tab_action(2, 2, "Grow Filesystem")
+        self.dialog({})
+        m.execute("udevadm trigger") # HACK
+        b.wait_not_present(warning_tab)
+        size = int(m.execute("df -k --output=size %s | tail -1" % mountpoint).strip())
+        assert (size > 250000)
+
+        # Shrink the filesystem and let Cockpit shrink the LUKS container and logical volume
+
+        fs_dev = m.execute("lsblk -pnl /dev/TEST/vol -o NAME | tail -1").strip()
+        m.execute("fsadm -y resize '%s' 200M" % fs_dev)
+        self.content_tab_action(2, 1, "Mount")
+        self.content_tab_wait_in_info(2, 1, "Mounted At", mountpoint)
+        warning_tab = self.content_tab_expand(2, 2)
+
+        self.content_tab_action(2, 2, "Shrink Volume")
+        self.dialog({})
+        b.wait_not_present(warning_tab)
+        size = int(m.execute("lvs TEST/vol -o lv_size --noheading --units b --nosuffix"))
+        assert (size < 250000000)
+
+        # Grow the logical volume and the LUKS container and let Cockpit grow the filesystem
+
+        m.execute("lvresize TEST/vol -L+100M")
+        m.execute("cryptsetup resize %s" % fs_dev)
+        warning_tab = self.content_tab_expand(2, 2)
+
+        self.content_tab_action(2, 2, "Grow Filesystem")
+        self.dialog({})
+        m.execute("udevadm trigger") # HACK
+        b.wait_not_present(warning_tab)
+        size = int(m.execute("df -k --output=size %s | tail -1" % mountpoint).strip())
+        assert (size > 250000)
+
+        # Shrink the filesystem and the LUKS container and let Cockpit shrink the logical volume
+
+        m.execute("fsadm -y resize '%s' 198M" % fs_dev)
+        m.execute("cryptsetup resize '%s' 200M" % fs_dev)
+        self.content_tab_action(2, 1, "Mount")
+        self.content_tab_wait_in_info(2, 1, "Mounted At", mountpoint)
+        warning_tab = self.content_tab_expand(2, 2)
+
+        self.content_tab_action(2, 2, "Shrink Volume")
+        self.dialog({})
+        b.wait_not_present(warning_tab)
+        size = int(m.execute("lvs TEST/vol -o lv_size --noheading --units b --nosuffix"))
+        assert (size < 250000000)
 
 if __name__ == '__main__':
     test_main()
