@@ -379,6 +379,9 @@ var babel_loader = {
                 }
             }],
             "@babel/preset-react"
+        ],
+        plugins: [
+            "istanbul"
         ]
     }
 }
